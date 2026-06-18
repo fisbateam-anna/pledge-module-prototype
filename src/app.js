@@ -2857,12 +2857,49 @@ function renderMobileShell(title, content, subtitle = "") {
   `;
 }
 
+function getMobileInspectionContactDetails(task, collateral) {
+  const organization = collateral?.clientName || task?.client || "Представитель клиента";
+  const routeContact = task?.clientContact ? `Контакт из маршрута: ${task.clientContact}` : "";
+  const detailsByType = {
+    "Автотранспорт": {
+      name: "Дилшод Каримов",
+      role: "Диспетчер автобазы",
+      phone: "+998 90 712-45-18",
+      availability: "Сегодня 14:00-17:00",
+      note: "Встречает у КПП, подготовит техпаспорт, ключи и доступ к стоянке."
+    },
+    "Недвижимость": {
+      name: "Рустам Абдуллаев",
+      role: "Управляющий объектом",
+      phone: "+998 93 204-18-70",
+      availability: "Сегодня 10:00-18:00",
+      note: "Откроет помещения, покажет инженерные зоны и документы по эксплуатации."
+    },
+    "Скот": {
+      name: "Шерзод Норбоев",
+      role: "Заведующий фермой",
+      phone: "+998 91 556-22-31",
+      availability: "Сегодня 08:00-12:30",
+      note: "Проводит к месту содержания, показывает бирки, ветсправки и журнал учета."
+    }
+  };
+  const details = detailsByType[collateral?.type] || {
+    name: "Азиза Рахимова",
+    role: "Представитель залогодателя",
+    phone: "+998 90 441-09-32",
+    availability: "Сегодня 09:00-16:00",
+    note: "Обеспечит доступ к объекту, документам и ответственному за хранение."
+  };
+  return {
+    ...details,
+    organization,
+    note: routeContact ? `${details.note} ${routeContact}` : details.note
+  };
+}
+
 function getMobileInspectionContact(task, collateral) {
-  if (task?.clientContact) return task.clientContact;
-  if (collateral?.type === "Автотранспорт") return `${collateral.clientName || task.client}, диспетчер +998 90 712-45-18`;
-  if (collateral?.type === "Недвижимость") return `${collateral.clientName || task.client}, управляющий объектом +998 93 204-18-70`;
-  if (collateral?.type === "Скот") return `${collateral.clientName || task.client}, заведующий фермой +998 91 556-22-31`;
-  return `${collateral?.clientName || task.client || "Представитель клиента"}, контакт +998 90 441-09-32`;
+  const contact = getMobileInspectionContactDetails(task, collateral);
+  return `${contact.name}, ${contact.role}, ${contact.phone}`;
 }
 
 function getMobileGeoPosition(collateral) {
@@ -2871,6 +2908,126 @@ function getMobileGeoPosition(collateral) {
   if (region.includes("бухар")) return "39.7747, 64.4286 · точность 22 м";
   if (region.includes("ташкент")) return "41.2995, 69.2401 · точность 16 м";
   return "41.3111, 69.2797 · точность 25 м";
+}
+
+const mobileInspectionFactorCatalog = [
+  { code: "access", title: "Доступ к объекту", weight: 20, options: [
+    { code: "free", label: "Доступ свободный, объект предъявлен полностью", score: 100 },
+    { code: "limited", label: "Доступ частичный, часть зон недоступна", score: 55 },
+    { code: "blocked", label: "Доступ не предоставлен", score: 0 }
+  ] },
+  { code: "technical", title: "Техническое состояние", weight: 20, options: [
+    { code: "working", label: "Состояние рабочее, критичных дефектов нет", score: 100 },
+    { code: "repair", label: "Есть замечания, требуется текущий ремонт", score: 60 },
+    { code: "critical", label: "Состояние неудовлетворительное", score: 15 }
+  ] },
+  { code: "storage", title: "Условия хранения", weight: 15, options: [
+    { code: "proper", label: "Условия хранения соответствуют требованиям", score: 100 },
+    { code: "remarks", label: "Есть замечания к хранению", score: 60 },
+    { code: "violated", label: "Условия хранения нарушены", score: 10 }
+  ] },
+  { code: "identity", title: "Соответствие карточке залога", weight: 15, options: [
+    { code: "match", label: "Объект соответствует описанию и идентификаторам", score: 100 },
+    { code: "minor", label: "Есть несущественные расхождения", score: 65 },
+    { code: "major", label: "Есть существенные расхождения", score: 10 }
+  ] },
+  { code: "documents", title: "Документы на месте", weight: 15, options: [
+    { code: "ready", label: "Документы предъявлены и совпадают с данными задачи", score: 100 },
+    { code: "partial", label: "Документы предъявлены частично", score: 55 },
+    { code: "missing", label: "Документы не предъявлены", score: 0 }
+  ] },
+  { code: "photos", title: "Фотофиксация", weight: 15, options: [
+    { code: "complete", label: "Все обязательные ракурсы доступны", score: 100 },
+    { code: "partial", label: "Часть ракурсов недоступна", score: 55 },
+    { code: "impossible", label: "Фотофиксация невозможна", score: 0 }
+  ] }
+];
+
+function getMobileInspectionFactors(collateral) {
+  if (collateral?.type === "Автотранспорт") {
+    return mobileInspectionFactorCatalog.map((factor) => factor.code === "technical"
+      ? { ...factor, title: "Техническое состояние транспорта" }
+      : factor.code === "storage"
+        ? { ...factor, title: "Условия стоянки и хранения" }
+        : factor);
+  }
+  if (collateral?.type === "Недвижимость") {
+    return mobileInspectionFactorCatalog.map((factor) => factor.code === "technical"
+      ? { ...factor, title: "Состояние здания / помещений" }
+      : factor.code === "storage"
+        ? { ...factor, title: "Условия эксплуатации объекта" }
+        : factor);
+  }
+  return mobileInspectionFactorCatalog;
+}
+
+function getMobileChecklistResult(task, collateral) {
+  const answers = task?.mobileChecklistAnswers?.[collateral?.id] || {};
+  const factors = getMobileInspectionFactors(collateral).map((factor) => {
+    const selected = factor.options.find((option) => option.code === answers[factor.code]) || null;
+    const weightedScore = selected ? selected.score * (factor.weight / 100) : 0;
+    return { ...factor, selected, weightedScore };
+  });
+  const completed = factors.filter((factor) => factor.selected).length;
+  const score = Math.round(factors.reduce((sum, factor) => sum + factor.weightedScore, 0));
+  if (completed < factors.length) {
+    return { factors, completed, total: factors.length, score, state: completed ? "Заполняется" : "Не заполнен", tone: "warn" };
+  }
+  if (score >= 85) return { factors, completed, total: factors.length, score, state: "Хорошее", tone: "ok" };
+  if (score >= 65) return { factors, completed, total: factors.length, score, state: "Есть замечания", tone: "warn" };
+  if (score >= 40) return { factors, completed, total: factors.length, score, state: "Требуется контроль", tone: "warn" };
+  return { factors, completed, total: factors.length, score, state: "Критичное", tone: "danger" };
+}
+
+function getMobileInspectionComment(task, collateral) {
+  return task?.mobileInspectionComments?.[collateral?.id] || "";
+}
+
+function renderMobileContactCard(task, collateral) {
+  const contact = getMobileInspectionContactDetails(task, collateral);
+  return `
+    <div class="mobile-contact-card">
+      <span class="mobile-kicker">Контакт на месте</span>
+      <h3>${escapeHtml(contact.name)}</h3>
+      <p>${escapeHtml(contact.role)} · ${escapeHtml(contact.organization)}</p>
+      <a class="mobile-contact-phone" href="tel:${escapeHtml(contact.phone.replaceAll(" ", ""))}">${escapeHtml(contact.phone)}</a>
+      <div class="mobile-contact-grid">
+        <div><span>Окно встречи</span><strong>${escapeHtml(contact.availability)}</strong></div>
+        <div><span>Инструкция</span><strong>${escapeHtml(contact.note)}</strong></div>
+      </div>
+      <button class="btn btn-secondary" data-action="mobile-call-contact" data-phone="${escapeHtml(contact.phone)}">Позвонить контакту</button>
+    </div>
+  `;
+}
+
+function renderMobileEmployeeChecklist(task, collateral, checklist) {
+  return `
+    <div class="mobile-section mobile-checklist-summary">
+      <div class="mobile-section-head">
+        <h3>Чек-лист выездного осмотра</h3>
+        ${badge(`${checklist.score} баллов`, checklist.tone)}
+      </div>
+      <div class="mobile-check-form">
+        ${checklist.factors.map((factor) => `
+          <label class="mobile-check-field">
+            <span><strong>${escapeHtml(factor.title)}</strong><small>Вес ${factor.weight}%</small></span>
+            <select data-mobile-check-factor data-task="${escapeHtml(task.id)}" data-collateral="${escapeHtml(collateral?.id || "")}" data-factor="${escapeHtml(factor.code)}">
+              <option value="">Выберите результат</option>
+              ${factor.options.map((option) => `<option value="${escapeHtml(option.code)}" ${factor.selected?.code === option.code ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+            </select>
+          </label>
+        `).join("")}
+      </div>
+      <div class="mobile-check-result">
+        <div><span>Результат осмотра</span><strong>${escapeHtml(checklist.state)}</strong></div>
+        <b>${checklist.completed}/${checklist.total}</b>
+      </div>
+      <label class="mobile-comment-field">
+        <span>Комментарий сотрудника</span>
+        <textarea data-mobile-inspection-comment data-task="${escapeHtml(task.id)}" data-collateral="${escapeHtml(collateral?.id || "")}" placeholder="Например: доступ предоставлен через представителя, требуется повторно запросить фото складской зоны.">${escapeHtml(getMobileInspectionComment(task, collateral))}</textarea>
+      </label>
+    </div>
+  `;
 }
 
 function renderMobileEmployeeTaskCard(task) {
@@ -2927,14 +3084,13 @@ function renderMobilePhotos(kind, taskId) {
   const task = getTask(taskId) || state.data.tasks.find((item) => isInspectionTaskType(item.type)) || state.data.tasks[0];
   const collateral = getCollateral(task.collateralId);
   const angles = getCollateralPhotoAngles(collateral);
-  const result = getInspectionResult(task, collateral);
-  const checklistGroups = result.groups.slice(0, 3);
+  const mobileChecklist = getMobileChecklistResult(task, collateral);
   const backRoute = kind === "employee" ? "/mobile/employee/tasks" : "/mobile/client/request";
   const context = kind === "employee" ? `
     <div class="mobile-section mobile-object-summary">
       <div class="mobile-section-head">
         <span class="mobile-kicker">${escapeHtml(task.id)} · ${escapeHtml(task.type)}</span>
-        ${badge(result.state, result.tone)}
+        ${badge(mobileChecklist.state, mobileChecklist.tone)}
       </div>
       <h2>${escapeHtml(collateral?.description || "Объект залога")}</h2>
       <div class="mobile-card-grid">
@@ -2942,17 +3098,10 @@ function renderMobilePhotos(kind, taskId) {
         <div><span>Договор</span><strong>${escapeHtml(task.contractId || "-")}</strong></div>
         <div class="wide"><span>Адрес залога</span><strong>${escapeHtml(collateral?.address || "Адрес не указан")}</strong></div>
         <div><span>Геопозиция</span><strong>${escapeHtml(getMobileGeoPosition(collateral))}</strong></div>
-        <div><span>Контакт на месте</span><strong>${escapeHtml(getMobileInspectionContact(task, collateral))}</strong></div>
       </div>
     </div>
-    <div class="mobile-section mobile-checklist-summary">
-      <div class="mobile-section-head"><h3>Краткий чек-лист</h3>${badge(`Балл ${result.score}`, result.tone)}</div>
-      ${checklistGroups.map((group) => {
-        const first = group.items[0];
-        return `<div class="mobile-check-row"><div><strong>${escapeHtml(group.title)}</strong><span>${escapeHtml(first?.selected?.label || "Проверка заполнена")}</span></div><b>${escapeHtml(group.weightedScore)}</b></div>`;
-      }).join("")}
-      <div class="mobile-check-result"><span>Результат осмотра</span><strong>${escapeHtml(result.state)}</strong></div>
-    </div>
+    ${renderMobileContactCard(task, collateral)}
+    ${renderMobileEmployeeChecklist(task, collateral, mobileChecklist)}
   ` : `<div class="mobile-photo-context"><strong>${escapeHtml(collateral?.id || "")}</strong><p>${escapeHtml(collateral?.description || "")}</p><span>${escapeHtml(task.id)} · ${escapeHtml(task.type)}</span></div>`;
   const content = `
     <div class="mobile-photo-toolbar"><button class="btn btn-secondary" data-route="${backRoute}">Назад</button></div>
@@ -3205,6 +3354,7 @@ document.addEventListener("click", (event) => {
   if (action === "submit-followup") submitFollowup();
   if (action === "open-mobile-inspection-task") openMobileInspectionTask(actionEl.dataset.task, actionEl.dataset.mobileKind);
   if (action === "submit-mobile-inspection-task") submitMobileInspectionTask();
+  if (action === "mobile-call-contact") addToast("Набор контакта на месте", actionEl.dataset.phone || "Телефон не указан", "info");
   if (action === "close-modal") state.modal = null;
   if (action === "open-collateral-registry-picker") state.modal = { type: "collateralPicker", search: "" };
   if (action === "open-new-collateral-form") state.modal = { type: "newCollateral" };
@@ -3232,6 +3382,11 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  const mobileComment = event.target.closest("[data-mobile-inspection-comment]");
+  if (mobileComment) {
+    updateMobileInspectionComment(mobileComment);
+    return;
+  }
   const marketAdjustment = event.target.closest("[data-market-adjustment]");
   if (marketAdjustment) {
     updateMarketAdjustment(marketAdjustment);
@@ -3258,6 +3413,11 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-mobile-check-factor]")) {
+    updateMobileChecklistFactor(event.target);
+    render();
+    return;
+  }
   if (event.target.matches("[data-inspection-factor]")) {
     updateTaskInspectionFactor(event.target);
     render();
@@ -3628,6 +3788,27 @@ function attachMobilePhoto(kind, taskId, collateralId, angle) {
   store[key] = { name: `${angle} - мобильное фото.jpg`, date: "2026-06-17" };
   updateMobileInspectionTaskResult(kind, taskId, collateralId);
   addToast("Фото сделано", angle, "ok");
+}
+
+function updateMobileChecklistFactor(fieldEl) {
+  const task = getTask(fieldEl.dataset.task);
+  const collateralId = fieldEl.dataset.collateral;
+  if (!task || !collateralId || !fieldEl.dataset.factor) return;
+  task.mobileChecklistAnswers = task.mobileChecklistAnswers || {};
+  task.mobileChecklistAnswers[collateralId] = task.mobileChecklistAnswers[collateralId] || {};
+  if (fieldEl.value) task.mobileChecklistAnswers[collateralId][fieldEl.dataset.factor] = fieldEl.value;
+  else delete task.mobileChecklistAnswers[collateralId][fieldEl.dataset.factor];
+  const checklist = getMobileChecklistResult(task, getCollateral(collateralId));
+  task.status = task.status === "Завершена" ? task.status : "В работе";
+  task.result = `Чек-лист выездного осмотра: ${checklist.completed}/${checklist.total}, ${checklist.score} баллов, результат "${checklist.state}".`;
+}
+
+function updateMobileInspectionComment(fieldEl) {
+  const task = getTask(fieldEl.dataset.task);
+  const collateralId = fieldEl.dataset.collateral;
+  if (!task || !collateralId) return;
+  task.mobileInspectionComments = task.mobileInspectionComments || {};
+  task.mobileInspectionComments[collateralId] = fieldEl.value;
 }
 
 function updateMobileInspectionTaskResult(kind, taskId, collateralId) {
