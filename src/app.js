@@ -1833,10 +1833,6 @@ function renderMobileInspectionResults(task, collateral) {
               <div class="mobile-result-photos">
                 ${photos.map((photo) => `<span class="mobile-photo-chip ${photo.name ? "done" : ""}">${escapeHtml(photo.angle)}${photo.name ? `: ${escapeHtml(photo.name)}` : `: ${escapeHtml(photo.status || "Не получено")}`}</span>`).join("")}
               </div>
-              <div class="inline-actions">
-                <button class="btn btn-secondary" data-route="${isClient ? `/mobile/client/tasks/${item.id}/photos` : `/mobile/employee/tasks/${item.id}/photos`}">Открыть мобильный экран</button>
-                <button class="btn btn-secondary" data-route="/app/tasks/${item.id}">Открыть подзадачу</button>
-              </div>
             </article>
           `;
         }).join("")}
