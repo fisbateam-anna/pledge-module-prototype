@@ -1041,6 +1041,7 @@ function renderMobileInspectionTaskBlock(task, collateral) {
   const isClient = task.mobileKind === "clientInspection" || task.type === "Клиентский осмотр";
   const mobileRoute = isClient ? `/mobile/client/tasks/${task.id}/photos` : `/mobile/employee/tasks/${task.id}/photos`;
   const result = getMobileInspectionProgress(task, collateral);
+  const transmitted = task.mobileResult || null;
   return `
     <section class="task-specific-form inspection-task-form">
       <section class="panel task-form-panel mobile-inspection-task-panel">
@@ -1058,7 +1059,10 @@ function renderMobileInspectionTaskBlock(task, collateral) {
           "Объект залога": collateral?.id || task.collateralId,
           "Плановый срок": task.dueDate,
           "Фото получены": `${result.done} из ${result.total}`,
-          "Результат": task.result
+          "Передано в основной модуль": transmitted?.sentAt || "Нет",
+          "Результат": task.result,
+          ...(transmitted?.checklist ? { "Чек-лист": `${transmitted.checklist.state}, ${transmitted.checklist.score} баллов` } : {}),
+          ...(transmitted?.comment ? { "Комментарий сотрудника": transmitted.comment } : {})
         })}
         <div class="inline-actions">
           <button class="btn btn-primary" data-route="${mobileRoute}">Открыть мобильный интерфейс</button>
@@ -1741,18 +1745,39 @@ function getRelatedMobileInspectionTasks(task) {
 
 function renderMobileInspectionResults(task, collateral) {
   const related = getRelatedMobileInspectionTasks(task);
-  if (!related.length) return "";
+  const includeCurrentTaskResult = isInspectionTaskType(task.type) && (
+    task.mobileResult ||
+    task.mobileDraft ||
+    task.mobileInspectionResults?.some((entry) => entry.taskId === task.id) ||
+    task.route?.includes("Выездной сотрудник")
+  );
+  const sources = includeCurrentTaskResult ? [task, ...related] : related;
+  if (!sources.length) return "";
   return `
     <section class="panel mobile-inspection-results-panel">
       <div class="panel-title">
         <div><h2>Результаты выездного/клиентского осмотра</h2><p class="hint">Данные поступают из созданных мобильных подзадач и отображаются в основной задаче осмотра.</p></div>
-        ${badge(`${related.length} подзадач`, "info")}
+        ${badge(`${sources.length} источник(ов)`, "info")}
       </div>
       <div class="mobile-inspection-results">
-        ${related.map((item) => {
+        ${sources.map((item) => {
           const itemCollateral = getCollateral(item.collateralId) || collateral;
           const result = getMobileInspectionProgress(item, itemCollateral);
           const isClient = result.kind === "client";
+          const transmitted = item.mobileResult || task.mobileInspectionResults?.find((entry) => entry.taskId === item.id) || null;
+          const checklistText = transmitted?.checklist
+            ? `${transmitted.checklist.state}, ${transmitted.checklist.score} баллов (${transmitted.checklist.completed}/${transmitted.checklist.total})`
+            : "Ожидается отправка из мобильного интерфейса";
+          const contactText = transmitted?.contact
+            ? `${transmitted.contact.name}, ${transmitted.contact.phone}`
+            : (isClient ? item.clientContact || item.client : item.assignee);
+          const commentText = transmitted?.comment || item.result || "Ожидается";
+          const photos = transmitted?.photos?.length
+            ? transmitted.photos
+            : result.angles.map((angle) => {
+                const photo = getMobilePhotoValue(result.kind, item.id, itemCollateral?.id || item.collateralId, angle);
+                return { angle, name: photo?.name || "", status: photo ? "Получено" : "Не получено" };
+              });
           return `
             <article class="mobile-result-card">
               <div class="mobile-result-head">
@@ -1760,18 +1785,23 @@ function renderMobileInspectionResults(task, collateral) {
                   <strong>${escapeHtml(item.type)}</strong>
                   <span>${escapeHtml(item.id)} · ${escapeHtml(itemCollateral?.id || item.collateralId || "-")}</span>
                 </div>
-                <div class="status-stack">${badge(item.status)}${badge(`${result.done}/${result.total} фото`, result.done === result.total ? "ok" : "warn")}</div>
+                <div class="status-stack">${badge(item.status)}${transmitted ? badge("Передано", "ok") : badge(`${result.done}/${result.total} фото`, result.done === result.total ? "ok" : "warn")}</div>
               </div>
               <div class="mobile-result-meta">
                 <div><span>${isClient ? "Контакт клиента" : "Исполнитель"}</span><strong>${escapeHtml(isClient ? item.clientContact || item.client : item.assignee)}</strong></div>
                 <div><span>Срок</span><strong>${escapeHtml(item.dueDate)}</strong></div>
-                <div><span>Результат</span><strong>${escapeHtml(item.result || "Ожидается")}</strong></div>
+                <div><span>Передано</span><strong>${escapeHtml(transmitted?.sentAt || "Нет")}</strong></div>
+                <div><span>Контакт на месте</span><strong>${escapeHtml(contactText)}</strong></div>
+                <div><span>Чек-лист</span><strong>${escapeHtml(checklistText)}</strong></div>
+                <div><span>Комментарий</span><strong>${escapeHtml(commentText)}</strong></div>
               </div>
+              ${transmitted?.checklist?.factors?.length ? `
+                <div class="mobile-result-checklist">
+                  ${transmitted.checklist.factors.map((factor) => `<span><strong>${escapeHtml(factor.title)}</strong>${escapeHtml(factor.value)} · ${factor.score} б. · вес ${factor.weight}%</span>`).join("")}
+                </div>
+              ` : ""}
               <div class="mobile-result-photos">
-                ${result.angles.map((angle) => {
-                  const photo = getMobilePhotoValue(result.kind, item.id, itemCollateral?.id || item.collateralId, angle);
-                  return `<span class="mobile-photo-chip ${photo ? "done" : ""}">${escapeHtml(angle)}${photo ? `: ${escapeHtml(photo.name)}` : ""}</span>`;
-                }).join("")}
+                ${photos.map((photo) => `<span class="mobile-photo-chip ${photo.name ? "done" : ""}">${escapeHtml(photo.angle)}${photo.name ? `: ${escapeHtml(photo.name)}` : `: ${escapeHtml(photo.status || "Не получено")}`}</span>`).join("")}
               </div>
               <div class="inline-actions">
                 <button class="btn btn-secondary" data-route="${isClient ? `/mobile/client/tasks/${item.id}/photos` : `/mobile/employee/tasks/${item.id}/photos`}">Открыть мобильный экран</button>
@@ -3030,6 +3060,29 @@ function renderMobileEmployeeChecklist(task, collateral, checklist) {
   `;
 }
 
+function renderMobileInspectionSubmitActions(task, collateral, checklist) {
+  const sentAt = task.mobileResult?.sentAt || "";
+  const savedAt = task.mobileDraft?.savedAt || "";
+  const status = sentAt
+    ? `Передано в основной модуль: ${sentAt}`
+    : savedAt
+      ? `Черновик сохранен: ${savedAt}`
+      : "Данные еще не сохранены";
+  return `
+    <div class="mobile-submit-panel">
+      <div class="mobile-submit-status">
+        <span>Статус передачи</span>
+        <strong>${escapeHtml(status)}</strong>
+        <small>Чек-лист заполнен: ${checklist.completed}/${checklist.total}, текущий балл: ${checklist.score}</small>
+      </div>
+      <div class="mobile-submit-actions">
+        <button class="btn btn-secondary" data-action="mobile-save-inspection" data-kind="employee" data-task="${escapeHtml(task.id)}" data-collateral="${escapeHtml(collateral?.id || "")}">Сохранить</button>
+        <button class="btn btn-primary" data-action="mobile-submit-inspection" data-kind="employee" data-task="${escapeHtml(task.id)}" data-collateral="${escapeHtml(collateral?.id || "")}">${sentAt ? "Отправить повторно" : "Отправить"}</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderMobileEmployeeTaskCard(task) {
   const collateral = getCollateral(task.collateralId);
   const progress = getMobileInspectionProgress(task, collateral);
@@ -3102,6 +3155,7 @@ function renderMobilePhotos(kind, taskId) {
     </div>
     ${renderMobileContactCard(task, collateral)}
     ${renderMobileEmployeeChecklist(task, collateral, mobileChecklist)}
+    ${renderMobileInspectionSubmitActions(task, collateral, mobileChecklist)}
   ` : `<div class="mobile-photo-context"><strong>${escapeHtml(collateral?.id || "")}</strong><p>${escapeHtml(collateral?.description || "")}</p><span>${escapeHtml(task.id)} · ${escapeHtml(task.type)}</span></div>`;
   const content = `
     <div class="mobile-photo-toolbar"><button class="btn btn-secondary" data-route="${backRoute}">Назад</button></div>
@@ -3355,6 +3409,8 @@ document.addEventListener("click", (event) => {
   if (action === "open-mobile-inspection-task") openMobileInspectionTask(actionEl.dataset.task, actionEl.dataset.mobileKind);
   if (action === "submit-mobile-inspection-task") submitMobileInspectionTask();
   if (action === "mobile-call-contact") addToast("Набор контакта на месте", actionEl.dataset.phone || "Телефон не указан", "info");
+  if (action === "mobile-save-inspection") saveMobileInspectionDraft(actionEl.dataset.kind, actionEl.dataset.task, actionEl.dataset.collateral);
+  if (action === "mobile-submit-inspection") submitMobileInspectionResult(actionEl.dataset.kind, actionEl.dataset.task, actionEl.dataset.collateral);
   if (action === "close-modal") state.modal = null;
   if (action === "open-collateral-registry-picker") state.modal = { type: "collateralPicker", search: "" };
   if (action === "open-new-collateral-form") state.modal = { type: "newCollateral" };
@@ -3811,29 +3867,130 @@ function updateMobileInspectionComment(fieldEl) {
   task.mobileInspectionComments[collateralId] = fieldEl.value;
 }
 
+function captureMobileInspectionForm(taskId, collateralId) {
+  const task = getTask(taskId);
+  if (!task || !collateralId) return;
+  document.querySelectorAll("[data-mobile-check-factor]").forEach((field) => {
+    if (field.dataset.task === taskId && field.dataset.collateral === collateralId) updateMobileChecklistFactor(field);
+  });
+  document.querySelectorAll("[data-mobile-inspection-comment]").forEach((field) => {
+    if (field.dataset.task === taskId && field.dataset.collateral === collateralId) updateMobileInspectionComment(field);
+  });
+}
+
+function buildMobileInspectionPayload(kind, task, collateral) {
+  const collateralId = collateral?.id || task?.collateralId || "";
+  const progress = getMobileInspectionProgress(task, collateral);
+  const checklist = kind === "employee" ? getMobileChecklistResult(task, collateral) : null;
+  const contactDetails = kind === "employee"
+    ? getMobileInspectionContactDetails(task, collateral)
+    : {
+        name: task.clientContact || task.client || "Клиент",
+        role: "Клиент / представитель",
+        phone: task.clientContact || "Телефон не указан",
+        organization: task.client || collateral?.clientName || "-",
+        availability: "По запросу",
+        note: "Фотофиксация выполнена клиентом через мобильный канал."
+      };
+  return {
+    kind,
+    taskId: task.id,
+    type: task.type,
+    collateralId,
+    collateralDescription: collateral?.description || "",
+    collateralAddress: collateral?.address || "",
+    checklist: checklist ? {
+      score: checklist.score,
+      state: checklist.state,
+      completed: checklist.completed,
+      total: checklist.total,
+      factors: checklist.factors.map((factor) => ({
+        code: factor.code,
+        title: factor.title,
+        weight: factor.weight,
+        value: factor.selected?.label || "Не заполнено",
+        score: factor.selected?.score ?? 0
+      }))
+    } : null,
+    comment: kind === "employee" ? getMobileInspectionComment(task, collateral) : task.result || "",
+    contact: contactDetails,
+    photos: progress.angles.map((angle) => {
+      const photo = getMobilePhotoValue(kind, task.id, collateralId, angle);
+      return { angle, name: photo?.name || "", date: photo?.date || "", status: photo ? "Получено" : "Не получено" };
+    }),
+    photoProgress: { done: progress.done, total: progress.total }
+  };
+}
+
+function saveMobileInspectionDraft(kind, taskId, collateralId, silent = false) {
+  const task = getTask(taskId);
+  const collateral = getCollateral(collateralId || task?.collateralId);
+  if (!task || !collateral) return null;
+  captureMobileInspectionForm(task.id, collateral.id);
+  const payload = buildMobileInspectionPayload(kind || "employee", task, collateral);
+  task.mobileDraft = { ...payload, savedAt: "2026-06-18 23:45" };
+  if (task.status !== "Завершена" && task.status !== "Передано в АРМ") task.status = "В работе";
+  task.result = payload.checklist
+    ? `Черновик выездного осмотра сохранен: ${payload.checklist.completed}/${payload.checklist.total}, ${payload.checklist.score} баллов, результат "${payload.checklist.state}".`
+    : "Черновик мобильного осмотра сохранен.";
+  if (!silent) addToast("Данные осмотра сохранены", `${task.id}: черновик доступен в мобильной задаче.`, "ok");
+  return payload;
+}
+
+function submitMobileInspectionResult(kind, taskId, collateralId) {
+  const task = getTask(taskId);
+  const collateral = getCollateral(collateralId || task?.collateralId);
+  if (!task || !collateral) return;
+  const normalizedKind = kind || (task.mobileKind === "clientInspection" ? "client" : "employee");
+  const payload = saveMobileInspectionDraft(normalizedKind, task.id, collateral.id, true);
+  if (!payload) return;
+  const sentAt = "2026-06-18 23:46";
+  const transmitted = { ...payload, sentAt, status: "Передано в основной залоговый модуль" };
+  task.mobileResult = transmitted;
+  task.mobileResultSent = true;
+  task.status = "Передано в АРМ";
+  task.result = transmitted.checklist
+    ? `Передано в основной модуль: ${transmitted.checklist.state}, ${transmitted.checklist.score} баллов, фото ${transmitted.photoProgress.done}/${transmitted.photoProgress.total}.`
+    : `Передано в основной модуль: фото ${transmitted.photoProgress.done}/${transmitted.photoProgress.total}.`;
+  pushMobileInspectionResultToParent(task, collateral, transmitted);
+  addToast("Данные отправлены", `${task.id}: результат передан в основную задачу.`, "ok");
+}
+
+function pushMobileInspectionResultToParent(task, collateral, payload) {
+  const parent = task.parentTaskId ? getTask(task.parentTaskId) : task;
+  if (!parent) return;
+  parent.mobileInspectionResults = parent.mobileInspectionResults || [];
+  const index = parent.mobileInspectionResults.findIndex((item) => item.taskId === task.id);
+  if (index >= 0) parent.mobileInspectionResults[index] = payload;
+  else parent.mobileInspectionResults.unshift(payload);
+  parent.history = parent.history || [];
+  parent.history.unshift({
+    date: payload.sentAt,
+    user: task.assignee || getRole().user,
+    action: task.mobileKind === "clientInspection" ? "Получен клиентский осмотр" : "Получен выездной осмотр",
+    status: parent.status,
+    comment: `${task.id}: ${collateral.id}, ${payload.checklist?.state || "результат без чек-листа"}, фото ${payload.photoProgress.done}/${payload.photoProgress.total}`
+  });
+  parent.result = payload.checklist
+    ? `Получен результат выездного осмотра ${task.id}: ${payload.checklist.state}, ${payload.checklist.score} баллов, комментарий: ${payload.comment || "без комментария"}.`
+    : `Получен результат мобильного осмотра ${task.id}: фото ${payload.photoProgress.done}/${payload.photoProgress.total}.`;
+}
+
 function updateMobileInspectionTaskResult(kind, taskId, collateralId) {
   const task = getTask(taskId);
   const collateral = getCollateral(collateralId);
   if (!task || !collateral) return;
   const progress = getMobileInspectionProgress(task, collateral);
   const channelText = kind === "client" ? "клиентского осмотра" : "выездного осмотра";
-  task.status = progress.done === progress.total ? "Завершена" : "В работе";
+  if (task.mobileResultSent) {
+    task.mobileResultSent = false;
+    task.status = "Изменения не отправлены";
+  } else {
+    task.status = progress.done === progress.total ? "Готова к отправке" : "В работе";
+  }
   task.result = progress.done === progress.total
-    ? `Результат ${channelText} получен: фото ${progress.done}/${progress.total} переданы в основную задачу.`
+    ? `Фотофиксация ${channelText} заполнена: фото ${progress.done}/${progress.total}. Нажмите «Отправить», чтобы передать данные в основной модуль.`
     : `Фотофиксация ${channelText}: получено ${progress.done}/${progress.total} фото.`;
-  if (progress.done !== progress.total || !task.parentTaskId || task.mobileResultSent) return;
-  const parent = getTask(task.parentTaskId);
-  if (!parent) return;
-  parent.history = parent.history || [];
-  parent.history.unshift({
-    date: "2026-06-17 20:55",
-    user: kind === "client" ? task.clientContact || task.client : task.assignee,
-    action: kind === "client" ? "Получен клиентский осмотр" : "Получен выездной осмотр",
-    status: parent.status,
-    comment: `${task.id}: полный комплект фото по объекту ${collateralId}`
-  });
-  parent.result = `${parent.result || "Основная задача осмотра"} Получен результат ${channelText} ${task.id}.`;
-  task.mobileResultSent = true;
 }
 
 window.addEventListener("hashchange", render);
