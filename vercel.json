@@ -1,0 +1,10 @@
+{
+  "cleanUrls": false,
+  "trailingSlash": true,
+  "rewrites": [
+    {
+      "source": "/((?!src/|docs/|Залоговый_модуль/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
