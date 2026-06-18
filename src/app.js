@@ -3,8 +3,24 @@ import { navItems, roles, employees, taskTypes, initialData, reportCatalog, mark
 const app = document.getElementById("app");
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+const DEMO_STORAGE_KEY = "pledgeModuleS.demoState.v2026-06-19";
+
+function loadPersistedDemoState() {
+  try {
+    const raw = localStorage.getItem(DEMO_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.data?.tasks || !parsed?.data?.collaterals || !parsed?.data?.contracts) return null;
+    return parsed;
+  } catch (error) {
+    console.warn("Не удалось загрузить сохраненное состояние прототипа", error);
+    return null;
+  }
+}
+
+const persistedDemoState = loadPersistedDemoState();
 const state = {
-  data: clone(initialData),
+  data: persistedDemoState?.data ? clone(persistedDemoState.data) : clone(initialData),
   roleId: new URLSearchParams(window.location.search).get("role") || localStorage.getItem("pledgeRole") || "specialist",
   collateralTab: "overview",
   taskRegistryTab: "mine",
@@ -26,7 +42,7 @@ const state = {
     selectedCollateralIds: [],
     documents: []
   },
-  mobile: { employeePhotos: {}, clientPhotos: {} },
+  mobile: persistedDemoState?.mobile ? clone(persistedDemoState.mobile) : { employeePhotos: {}, clientPhotos: {} },
   modal: null,
   pendingRegistryFocus: "",
   pendingScrollRestore: null,
@@ -36,6 +52,18 @@ const state = {
 };
 
 let registryFilterRenderTimer = null;
+
+function persistDemoState() {
+  try {
+    localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({
+      savedAt: new Date().toISOString(),
+      data: state.data,
+      mobile: state.mobile
+    }));
+  } catch (error) {
+    console.warn("Не удалось сохранить состояние прототипа", error);
+  }
+}
 
 const documentRules = [
   { title: "Заявление клиента", collateralType: "any", clientType: "any", taskType: "any", required: true },
@@ -157,6 +185,7 @@ function render() {
   restorePendingMobileScrollPosition();
   focusPendingRegistryTable();
   restorePendingFilterFocus();
+  persistDemoState();
 }
 
 function renderTopbar(role, path) {
