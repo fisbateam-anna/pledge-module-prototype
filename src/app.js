@@ -2837,34 +2837,135 @@ function renderPrintPreview(id) {
   return `${renderPageHeader("Печатная форма", "Демонстрационный предпросмотр документа.", `<button class="btn btn-secondary" data-route="/app/tasks">Назад</button><button class="btn btn-primary" data-action="print">Печать</button>`)}<section class="print-preview"><h2>${escapeHtml(title)}</h2><p>Форма содержит реквизиты клиента, договора, объекта залога, стоимости, страхования и истории согласования.</p></section>`;
 }
 
+function renderMobileShell(title, content, subtitle = "") {
+  return `
+    <section class="mobile-stage">
+      <div class="mobile-wrap" role="region" aria-label="${escapeHtml(title)}">
+        <div class="phone-speaker"></div>
+        <div class="mobile-screen">
+          <div class="mobile-header">
+            <div>
+              <h1>${escapeHtml(title)}</h1>
+              ${subtitle ? `<p class="mobile-muted">${escapeHtml(subtitle)}</p>` : ""}
+            </div>
+          </div>
+          <div class="mobile-content">${content}</div>
+          <div class="phone-home-indicator"></div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function getMobileInspectionContact(task, collateral) {
+  if (task?.clientContact) return task.clientContact;
+  if (collateral?.type === "Автотранспорт") return `${collateral.clientName || task.client}, диспетчер +998 90 712-45-18`;
+  if (collateral?.type === "Недвижимость") return `${collateral.clientName || task.client}, управляющий объектом +998 93 204-18-70`;
+  if (collateral?.type === "Скот") return `${collateral.clientName || task.client}, заведующий фермой +998 91 556-22-31`;
+  return `${collateral?.clientName || task.client || "Представитель клиента"}, контакт +998 90 441-09-32`;
+}
+
+function getMobileGeoPosition(collateral) {
+  const region = `${collateral?.region || ""} ${collateral?.address || ""}`.toLowerCase();
+  if (region.includes("самарканд")) return "39.6542, 66.9597 · точность 18 м";
+  if (region.includes("бухар")) return "39.7747, 64.4286 · точность 22 м";
+  if (region.includes("ташкент")) return "41.2995, 69.2401 · точность 16 м";
+  return "41.3111, 69.2797 · точность 25 м";
+}
+
+function renderMobileEmployeeTaskCard(task) {
+  const collateral = getCollateral(task.collateralId);
+  const progress = getMobileInspectionProgress(task, collateral);
+  const address = collateral?.address || "Адрес не указан";
+  return `
+    <article class="mobile-card mobile-task-card">
+      <div class="mobile-card-top">
+        <div>
+          <span class="mobile-kicker">${escapeHtml(task.id)} · ${escapeHtml(task.type)}</span>
+          <h2>${escapeHtml(task.title)}</h2>
+        </div>
+        ${badge(task.priority || "Обычный", badgeTone(task.priority || ""))}
+      </div>
+      <p>${escapeHtml(collateral?.description || "Объект залога не указан")}</p>
+      <div class="mobile-card-grid">
+        <div><span>Клиент</span><strong>${escapeHtml(task.client || collateral?.clientName || "-")}</strong></div>
+        <div><span>Дата выезда</span><strong>${escapeHtml(task.dueDate || "-")}</strong></div>
+        <div class="wide"><span>Адрес</span><strong>${escapeHtml(address)}</strong></div>
+      </div>
+      <div class="mobile-card-meta">
+        <span>${escapeHtml(collateral?.id || task.collateralId || "-")}</span>
+        ${badge(`${progress.done}/${progress.total} фото`, progress.done === progress.total ? "ok" : "warn")}
+      </div>
+      <div class="mobile-actions">
+        <button class="btn btn-primary" data-route="/mobile/employee/tasks/${task.id}/photos">Открыть задачу</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderMobileEmployeeTasks() {
   const tasks = state.data.tasks
     .filter((task) => task.mobileKind === "employeeInspection" || task.type === "Выездной осмотр" || (isInspectionTaskType(task.type) && task.route?.includes("Выездной сотрудник")))
     .slice(0, 8);
-  return `<section class="mobile-wrap"><div class="mobile-header"><h1>Мобильный осмотр</h1></div><div class="mobile-list">${tasks.length ? tasks.map((task) => {
-    const collateral = getCollateral(task.collateralId);
-    const progress = getMobileInspectionProgress(task, collateral);
-    return `<article class="mobile-card"><h2>${escapeHtml(task.type)}</h2><p>${escapeHtml(task.title)}</p><div class="mobile-card-meta"><span>${escapeHtml(collateral?.id || task.collateralId || "-")}</span>${badge(`${progress.done}/${progress.total} фото`, progress.done === progress.total ? "ok" : "warn")}</div><div class="mobile-actions"><button class="btn btn-primary" data-route="/mobile/employee/tasks/${task.id}/photos">Фото</button></div></article>`;
-  }).join("") : `<article class="mobile-card detail"><h2>Задач нет</h2><p>Создайте задачу на выездной осмотр из маршрута основного осмотра.</p></article>`}</div></section>`;
+  const content = `<div class="mobile-list">${tasks.length
+    ? tasks.map(renderMobileEmployeeTaskCard).join("")
+    : `<article class="mobile-card detail"><h2>Задач нет</h2><p>Создайте задачу на выездной осмотр из маршрута основного осмотра.</p></article>`}</div>`;
+  return renderMobileShell("Мобильный осмотр", content, "Задачи выездного сотрудника");
 }
 
 function renderMobileClientRequest() {
   const tasks = state.data.tasks.filter((task) => task.mobileKind === "clientInspection" || task.type === "Клиентский осмотр").slice(0, 8);
-  return `<section class="mobile-wrap"><div class="mobile-header"><h1>Запрос Банка</h1></div><div class="mobile-list">${tasks.length ? tasks.map((task) => {
+  const content = `<div class="mobile-list">${tasks.length ? tasks.map((task) => {
     const collateral = getCollateral(task.collateralId);
     const progress = getMobileInspectionProgress(task, collateral);
     return `<article class="mobile-card"><h2>${escapeHtml(task.type)}</h2><p>${escapeHtml(task.title)}</p><div class="mobile-card-meta"><span>${escapeHtml(collateral?.id || task.collateralId || "-")}</span>${badge(`${progress.done}/${progress.total} фото`, progress.done === progress.total ? "ok" : "warn")}</div><div class="mobile-actions"><button class="btn btn-primary" data-route="/mobile/client/tasks/${task.id}/photos">Перейти к фото</button></div></article>`;
-  }).join("") : `<article class="mobile-card detail"><h2>Запросов нет</h2><p>Запрос появится после отправки из маршрута основной задачи осмотра.</p></article>`}</div></section>`;
+  }).join("") : `<article class="mobile-card detail"><h2>Запросов нет</h2><p>Запрос появится после отправки из маршрута основной задачи осмотра.</p></article>`}</div>`;
+  return renderMobileShell("Запрос Банка", content, "Клиентский осмотр");
 }
 
 function renderMobilePhotos(kind, taskId) {
   const task = getTask(taskId) || state.data.tasks.find((item) => isInspectionTaskType(item.type)) || state.data.tasks[0];
   const collateral = getCollateral(task.collateralId);
   const angles = getCollateralPhotoAngles(collateral);
-  return `<section class="mobile-wrap"><div class="mobile-header"><button class="btn btn-secondary" data-route="${kind === "employee" ? "/mobile/employee/tasks" : "/mobile/client/request"}">Назад</button><h1>Фото снимки объекта залога</h1></div><div class="mobile-photo-context"><strong>${escapeHtml(collateral?.id || "")}</strong><p>${escapeHtml(collateral?.description || "")}</p><span>${escapeHtml(task.id)} · ${escapeHtml(task.type)}</span></div><div class="photo-wizard">${angles.map((angle) => {
+  const result = getInspectionResult(task, collateral);
+  const checklistGroups = result.groups.slice(0, 3);
+  const backRoute = kind === "employee" ? "/mobile/employee/tasks" : "/mobile/client/request";
+  const context = kind === "employee" ? `
+    <div class="mobile-section mobile-object-summary">
+      <div class="mobile-section-head">
+        <span class="mobile-kicker">${escapeHtml(task.id)} · ${escapeHtml(task.type)}</span>
+        ${badge(result.state, result.tone)}
+      </div>
+      <h2>${escapeHtml(collateral?.description || "Объект залога")}</h2>
+      <div class="mobile-card-grid">
+        <div><span>ID залога</span><strong>${escapeHtml(collateral?.id || "-")}</strong></div>
+        <div><span>Договор</span><strong>${escapeHtml(task.contractId || "-")}</strong></div>
+        <div class="wide"><span>Адрес залога</span><strong>${escapeHtml(collateral?.address || "Адрес не указан")}</strong></div>
+        <div><span>Геопозиция</span><strong>${escapeHtml(getMobileGeoPosition(collateral))}</strong></div>
+        <div><span>Контакт на месте</span><strong>${escapeHtml(getMobileInspectionContact(task, collateral))}</strong></div>
+      </div>
+    </div>
+    <div class="mobile-section mobile-checklist-summary">
+      <div class="mobile-section-head"><h3>Краткий чек-лист</h3>${badge(`Балл ${result.score}`, result.tone)}</div>
+      ${checklistGroups.map((group) => {
+        const first = group.items[0];
+        return `<div class="mobile-check-row"><div><strong>${escapeHtml(group.title)}</strong><span>${escapeHtml(first?.selected?.label || "Проверка заполнена")}</span></div><b>${escapeHtml(group.weightedScore)}</b></div>`;
+      }).join("")}
+      <div class="mobile-check-result"><span>Результат осмотра</span><strong>${escapeHtml(result.state)}</strong></div>
+    </div>
+  ` : `<div class="mobile-photo-context"><strong>${escapeHtml(collateral?.id || "")}</strong><p>${escapeHtml(collateral?.description || "")}</p><span>${escapeHtml(task.id)} · ${escapeHtml(task.type)}</span></div>`;
+  const content = `
+    <div class="mobile-photo-toolbar"><button class="btn btn-secondary" data-route="${backRoute}">Назад</button></div>
+    ${context}
+    <div class="mobile-section photo-wizard-section">
+      <h3>Фото снимки объекта залога</h3>
+      <div class="photo-wizard">${angles.map((angle) => {
     const photo = getMobilePhotoValue(kind, task.id, collateral?.id || "", angle);
     return `<div class="photo-step ${photo ? "done" : ""}"><strong>${escapeHtml(angle)}</strong><span>${escapeHtml(photo?.name || "Фото не сделано")}</span><button class="btn btn-primary" data-action="mobile-take-photo" data-kind="${kind}" data-task="${task.id}" data-collateral="${collateral?.id || ""}" data-angle="${escapeHtml(angle)}">${photo ? "Переснять" : "Сделать фото"}</button></div>`;
-  }).join("")}</div></section>`;
+  }).join("")}</div>
+    </div>
+  `;
+  return renderMobileShell("Фото осмотра", content, kind === "employee" ? "Выездной сотрудник" : "Клиент");
 }
 
 function renderCollateralRegistryPickerModal() {
