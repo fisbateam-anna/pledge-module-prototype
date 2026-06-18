@@ -30,6 +30,7 @@ const state = {
   modal: null,
   pendingRegistryFocus: "",
   pendingScrollRestore: null,
+  pendingMobileScrollRestore: null,
   pendingFilterFocus: null,
   toasts: []
 };
@@ -153,6 +154,7 @@ function render() {
     </div>
   `;
   restorePendingScrollPosition();
+  restorePendingMobileScrollPosition();
   focusPendingRegistryTable();
   restorePendingFilterFocus();
 }
@@ -344,6 +346,34 @@ function restorePendingScrollPosition() {
   if (!target) return;
   state.pendingScrollRestore = null;
   const restore = () => window.scrollTo({ top: target.top, left: target.left, behavior: "instant" });
+  if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(restore);
+  else setTimeout(restore, 0);
+}
+
+function rememberMobileScrollPosition(field) {
+  const content = field?.closest?.(".mobile-content");
+  state.pendingMobileScrollRestore = {
+    windowTop: window.scrollY,
+    windowLeft: window.scrollX,
+    contentTop: content?.scrollTop || 0,
+    task: field?.dataset?.task || "",
+    collateral: field?.dataset?.collateral || "",
+    factor: field?.dataset?.factor || ""
+  };
+}
+
+function restorePendingMobileScrollPosition() {
+  const target = state.pendingMobileScrollRestore;
+  if (!target) return;
+  state.pendingMobileScrollRestore = null;
+  const restore = () => {
+    const content = document.querySelector(".mobile-content");
+    if (content) content.scrollTop = target.contentTop;
+    window.scrollTo({ top: target.windowTop, left: target.windowLeft, behavior: "instant" });
+    const field = Array.from(document.querySelectorAll("[data-mobile-check-factor]"))
+      .find((item) => item.dataset.task === target.task && item.dataset.collateral === target.collateral && item.dataset.factor === target.factor);
+    if (field) field.focus({ preventScroll: true });
+  };
   if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(restore);
   else setTimeout(restore, 0);
 }
@@ -3155,7 +3185,6 @@ function renderMobilePhotos(kind, taskId) {
     </div>
     ${renderMobileContactCard(task, collateral)}
     ${renderMobileEmployeeChecklist(task, collateral, mobileChecklist)}
-    ${renderMobileInspectionSubmitActions(task, collateral, mobileChecklist)}
   ` : `<div class="mobile-photo-context"><strong>${escapeHtml(collateral?.id || "")}</strong><p>${escapeHtml(collateral?.description || "")}</p><span>${escapeHtml(task.id)} · ${escapeHtml(task.type)}</span></div>`;
   const content = `
     <div class="mobile-photo-toolbar"><button class="btn btn-secondary" data-route="${backRoute}">Назад</button></div>
@@ -3167,6 +3196,7 @@ function renderMobilePhotos(kind, taskId) {
     return `<div class="photo-step ${photo ? "done" : ""}"><strong>${escapeHtml(angle)}</strong><span>${escapeHtml(photo?.name || "Фото не сделано")}</span><button class="btn btn-primary" data-action="mobile-take-photo" data-kind="${kind}" data-task="${task.id}" data-collateral="${collateral?.id || ""}" data-angle="${escapeHtml(angle)}">${photo ? "Переснять" : "Сделать фото"}</button></div>`;
   }).join("")}</div>
     </div>
+    ${kind === "employee" ? renderMobileInspectionSubmitActions(task, collateral, mobileChecklist) : ""}
   `;
   return renderMobileShell("Фото осмотра", content, kind === "employee" ? "Выездной сотрудник" : "Клиент");
 }
@@ -3470,6 +3500,7 @@ document.addEventListener("input", (event) => {
 
 document.addEventListener("change", (event) => {
   if (event.target.matches("[data-mobile-check-factor]")) {
+    rememberMobileScrollPosition(event.target);
     updateMobileChecklistFactor(event.target);
     render();
     return;
