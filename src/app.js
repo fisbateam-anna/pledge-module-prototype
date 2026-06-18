@@ -30,8 +30,11 @@ const state = {
   modal: null,
   pendingRegistryFocus: "",
   pendingScrollRestore: null,
+  pendingFilterFocus: null,
   toasts: []
 };
+
+let registryFilterRenderTimer = null;
 
 const documentRules = [
   { title: "Заявление клиента", collateralType: "any", clientType: "any", taskType: "any", required: true },
@@ -151,6 +154,7 @@ function render() {
   `;
   restorePendingScrollPosition();
   focusPendingRegistryTable();
+  restorePendingFilterFocus();
 }
 
 function renderTopbar(role, path) {
@@ -342,6 +346,52 @@ function restorePendingScrollPosition() {
   const restore = () => window.scrollTo({ top: target.top, left: target.left, behavior: "instant" });
   if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(restore);
   else setTimeout(restore, 0);
+}
+
+function getFilterField(scope, name) {
+  return Array.from(document.querySelectorAll("[data-filter-scope][data-filter-name]"))
+    .find((element) => element.dataset.filterScope === scope && element.dataset.filterName === name);
+}
+
+function rememberFilterFocus(field) {
+  state.pendingFilterFocus = {
+    scope: field.dataset.filterScope,
+    name: field.dataset.filterName,
+    selectionStart: typeof field.selectionStart === "number" ? field.selectionStart : null,
+    selectionEnd: typeof field.selectionEnd === "number" ? field.selectionEnd : null
+  };
+  state.pendingScrollRestore = { top: window.scrollY, left: window.scrollX };
+}
+
+function restorePendingFilterFocus() {
+  const target = state.pendingFilterFocus;
+  if (!target) return;
+  state.pendingFilterFocus = null;
+  const restore = () => {
+    const field = getFilterField(target.scope, target.name);
+    if (!field) return;
+    field.focus({ preventScroll: true });
+    if (typeof field.setSelectionRange === "function" && target.selectionStart !== null) {
+      field.setSelectionRange(target.selectionStart, target.selectionEnd ?? target.selectionStart);
+    }
+  };
+  if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(restore);
+  else setTimeout(restore, 0);
+}
+
+function scheduleRegistryFilterRender(field) {
+  rememberFilterFocus(field);
+  window.clearTimeout(registryFilterRenderTimer);
+  registryFilterRenderTimer = window.setTimeout(() => {
+    registryFilterRenderTimer = null;
+    render();
+  }, 300);
+}
+
+function renderRegistryFilterNow() {
+  window.clearTimeout(registryFilterRenderTimer);
+  registryFilterRenderTimer = null;
+  render();
 }
 
 function resetVisualFilters(scope) {
@@ -3091,7 +3141,8 @@ document.addEventListener("input", (event) => {
   const filter = event.target.closest("[data-filter-scope]");
   if (filter) {
     state.filters[filter.dataset.filterScope][filter.dataset.filterName] = filter.value;
-    render();
+    scheduleRegistryFilterRender(filter);
+    return;
   }
 	  const expert = event.target.closest("[data-task-expert]");
 	  if (expert) {
@@ -3141,7 +3192,8 @@ document.addEventListener("change", (event) => {
   }
   if (event.target.matches("[data-filter-scope]")) {
     state.filters[event.target.dataset.filterScope][event.target.dataset.filterName] = event.target.value;
-    render();
+    rememberFilterFocus(event.target);
+    renderRegistryFilterNow();
   }
   if (event.target.matches("[data-doc-file]")) {
     attachDocument(event.target.dataset.docFile, event.target.files?.[0]?.name);
