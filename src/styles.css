@@ -3677,6 +3677,35 @@ tbody tr:hover {
   grid-template-columns: 1fr;
 }
 
+.route-approval-note {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  margin: 0 0 10px;
+  background: #f3fbf8;
+  border: 1px solid #c8eadf;
+  border-radius: 8px;
+}
+
+.route-approval-note span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.route-approval-note strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.route-approval-note p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .task-route-panel .btn {
   justify-content: center;
   width: 100%;

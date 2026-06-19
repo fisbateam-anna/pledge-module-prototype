@@ -19,9 +19,27 @@ function loadPersistedDemoState() {
 }
 
 const persistedDemoState = loadPersistedDemoState();
+
+function resolveInitialRoleId() {
+  const requestedRoleId = new URLSearchParams(window.location.search).get("role");
+  const initialPath = window.location.hash.replace(/^#/, "");
+
+  if (initialPath.startsWith("/mobile/employee")) return "field";
+  if (initialPath.startsWith("/mobile/client")) return "client";
+
+  const desktopRoleIds = roles
+    .filter((role) => role.menu.some((item) => ["tasks", "contracts", "collaterals"].includes(item)))
+    .map((role) => role.id);
+  const storedRoleId = localStorage.getItem("pledgeRole");
+  if (desktopRoleIds.includes(storedRoleId)) return storedRoleId;
+  if (desktopRoleIds.includes(requestedRoleId)) return requestedRoleId;
+
+  return "specialist";
+}
+
 const state = {
   data: persistedDemoState?.data ? clone(persistedDemoState.data) : clone(initialData),
-  roleId: new URLSearchParams(window.location.search).get("role") || localStorage.getItem("pledgeRole") || "specialist",
+  roleId: resolveInitialRoleId(),
   collateralTab: "overview",
   taskRegistryTab: "mine",
   filters: {
@@ -167,6 +185,38 @@ function isRevaluationTaskType(type) {
 
 function isPledgeOperationTaskType(type) {
   return ["Постановка в залог", "Снятие обременения", "Замена залога"].includes(type);
+}
+
+function getDemoTimestamp() {
+  const value = new Date();
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}`;
+}
+
+function isTaskApprover(task, role) {
+  const route = task?.route || [];
+  const roleLabel = role.label.toLowerCase();
+  const userName = role.user.toLowerCase();
+  return route.some((item, index) => {
+    const step = String(item || "").toLowerCase();
+    return index > 0 && (step === roleLabel || step.includes(roleLabel) || step === userName || step.includes(userName));
+  });
+}
+
+function appendTaskHistory(task, action, status = task?.status || "", comment = "") {
+  if (!task) return;
+  task.history = Array.isArray(task.history) ? task.history : [];
+  task.history.push({
+    date: getDemoTimestamp(),
+    user: getRole().user,
+    action,
+    status,
+    comment
+  });
+}
+
+function getApproverCandidates() {
+  return [...new Set([...employees, ...roles.map((role) => role.user)])];
 }
 
 function render() {
@@ -584,7 +634,7 @@ function renderTasksRegistry() {
         ${filterInput("tasks", "clientName", "Наименование/ФИО клиента")}
         ${filterInput("tasks", "collateralId", "Идентификатор залога")}
         ${filterSelect("tasks", "type", "Тип задачи", ["", ...taskTypes])}
-        ${filterSelect("tasks", "status", "Статус", ["", "Назначена", "В работе", "Отложена", "На доработке", "Завершена"])}
+        ${filterSelect("tasks", "status", "Статус", ["", "Назначена", "В работе", "На согласовании", "Отложено", "Отложена", "На доработке", "Завершена"])}
         ${filterSelect("tasks", "assignee", "Исполнитель", ["", ...employees])}
         <button class="btn btn-secondary" data-action="reset-filters" data-scope="tasks">Сбросить</button>
       </div>
@@ -899,7 +949,9 @@ function renderTaskCard(taskId) {
   const collateral = getTaskActiveCollateral(task, collaterals);
   const contract = getContract(task.contractId);
   const role = getRole();
-  const canWork = role.permissions.completeTask && task.status !== "Завершена";
+  const isCompleted = task.status === "Завершена";
+  const canReturn = isTaskApprover(task, role) && !isCompleted;
+  const canReassign = role.id === "manager" && !isCompleted;
   const taskPageClass = [
     "task-page",
     "task-card-compact",
@@ -912,10 +964,11 @@ function renderTaskCard(taskId) {
         `${task.id} - ${task.type}`,
         `${task.title}. Источник: ${task.source}. SLA: ${task.sla}.`,
         `<button class="btn btn-secondary" data-route="/app/tasks">Назад</button>
-         ${role.permissions.reassign ? `<button class="btn btn-secondary" data-action="open-reassign" data-task="${task.id}">Переназначить</button>` : ""}
-         ${canWork ? `<button class="btn btn-secondary" data-action="task-status" data-task="${task.id}" data-status="Отложена">Отложить</button>` : ""}
-         ${role.permissions.returnTask && task.status !== "Завершена" ? `<button class="btn btn-secondary" data-action="task-status" data-task="${task.id}" data-status="На доработке">Вернуть</button>` : ""}
-         ${canWork ? `<button class="btn btn-secondary" data-action="save-task" data-task="${task.id}">Сохранить</button><button class="btn btn-primary" data-action="task-status" data-task="${task.id}" data-status="Завершена">Завершить</button>` : ""}`
+         <button class="btn btn-secondary" data-action="task-status" data-task="${task.id}" data-status="Отложено" ${isCompleted ? "disabled" : ""}>Отложить</button>
+         ${canReturn ? `<button class="btn btn-secondary" data-action="task-status" data-task="${task.id}" data-status="На доработке">Вернуть</button>` : ""}
+         <button class="btn btn-primary" data-action="task-status" data-task="${task.id}" data-status="Завершена" ${isCompleted ? "disabled" : ""}>Завершить</button>
+         ${canReassign ? `<button class="btn btn-secondary" data-action="open-reassign" data-task="${task.id}">Переназначить</button>` : ""}
+         <button class="btn btn-secondary" data-action="save-task" data-task="${task.id}">Сохранить</button>`
       )}
       ${renderTaskMainInfo(task)}
       <section class="task-detail-layout">
@@ -1704,10 +1757,21 @@ function renderTaskRoute(task, role) {
   const showInspectionTask = canCreateFollowup && isMonitoringTaskType(task.type);
   const showRevaluationTask = canCreateFollowup && (isMonitoringTaskType(task.type) || isInspectionTaskType(task.type));
   const showMobileInspectionActions = canCreateFollowup && isInspectionTaskType(task.type);
+  const approval = task.pendingApprover;
+  const approvalState = approval?.completed
+    ? "Согласование выполнено"
+    : approval?.transferred
+      ? "На согласовании"
+      : "Согласующий добавлен";
   return `
     <section class="panel task-route-panel">
       <h2>Маршрут</h2>
       <div class="timeline">${(task.route || []).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+      ${approval ? `<div class="route-approval-note">
+        <span>${escapeHtml(approvalState)}</span>
+        <strong>${escapeHtml(approval.name)}</strong>
+        <p>${escapeHtml(approval.comment || "Комментарий для согласующего не указан.")}</p>
+      </div>` : ""}
       <div class="route-actions">
         <button class="btn btn-secondary" data-action="add-approver" data-task="${task.id}">Добавить согласующего</button>
         ${showInspectionTask ? `<button class="btn btn-secondary" data-action="create-followup-task" data-task="${task.id}" data-task-type="Первичный осмотр">Создать задачу на осмотр</button>` : ""}
@@ -2179,13 +2243,12 @@ function getRevaluationValueCalculation(collateral, matrix) {
 }
 
 function getMarketAnalogMatrix(task, collateral) {
-  const isAuto = collateral?.type === "Автотранспорт";
-  const isRealty = collateral?.type === "Недвижимость";
-  const source = isAuto ? marketAnalogs.filter((item) => item.source.includes("Avtoelon")) : isRealty ? marketAnalogs.filter((item) => item.source.includes("OLX")) : marketAnalogs;
+  const collateralType = collateral?.type || "Иное";
+  const isAuto = collateralType === "Автотранспорт";
+  const source = getSameTypeMarketAnalogs(collateral);
   const savedAdjustments = task?.marketAnalogAdjustments?.[collateral?.id || "default"] || {};
-  const sourcePool = source.length ? source : marketAnalogs;
   const columns = Array.from({ length: 3 }, (_, index) => {
-    const item = sourcePool[index] || sourcePool[index % Math.max(1, sourcePool.length)] || {};
+    const item = source[index] || createFallbackAnalog(collateral, index);
     const price = item.price || (collateral?.marketValue || 0);
     const correction = Number(String(item.correction || "0").replace(/[+%]/g, "")) || [2, -1, 0][index] || 0;
     const defaultAdjustments = [correction, -1, 0, 1, -0.5];
@@ -2194,15 +2257,15 @@ function getMarketAnalogMatrix(task, collateral) {
       return savedValue === undefined ? value : parseNumericInput(savedValue);
     });
     return {
-      title: `Залог-аналог ${index + 1}`,
+      title: `Аналог ${index + 1}`,
       source: item.source || "Экспертный источник",
       name: item.object || collateral?.description || "Аналог",
-      year: isAuto ? "2021-2022" : "Регистрация 2020-2022",
-      details: isAuto ? "Пробег и состояние сопоставимы" : "Площадь, локация и состояние сопоставимы",
+      year: getAnalogYearLabel(collateralType),
+      details: getAnalogDetailsLabel(collateralType),
       offerDate: "2026-06-12",
       price,
       link: `${item.source || "Источник"} / карточка аналога`,
-      dynamic: [collateral?.type || "Иное", collateral?.region || "Регион", collateral?.address || "Местонахождение", "Состояние сопоставимо", "Требует экспертной проверки"],
+      dynamic: [collateralType, collateral?.region || "Регион", collateral?.address || "Местонахождение", "Состояние сопоставимо", "Требует экспертной проверки"],
       adjustments
     };
   });
@@ -2220,6 +2283,68 @@ function getMarketAnalogMatrix(task, collateral) {
     finalMarketValue,
     recommendation: finalMarketValue > (collateral?.marketValue || 0) ? "Допустить повышение после независимой оценки" : "Назначить повторную независимую оценку"
   };
+}
+
+function getSameTypeMarketAnalogs(collateral) {
+  const type = collateral?.type || "";
+  const typed = marketAnalogs.filter((item) => item.type === type);
+  const subtype = getMarketAnalogSubtype(collateral);
+  const sameSubtype = subtype ? typed.filter((item) => item.subtype === subtype) : [];
+  const selected = sameSubtype.length ? sameSubtype : typed;
+  if (selected.length >= 3) return selected.slice(0, 3);
+  return [...selected, ...Array.from({ length: 3 - selected.length }, (_, index) => createFallbackAnalog(collateral, selected.length + index))];
+}
+
+function getMarketAnalogSubtype(collateral) {
+  const text = [collateral?.description, collateral?.fields?.["Назначение"], collateral?.fields?.["Комнат"]].filter(Boolean).join(" ").toLowerCase();
+  if (collateral?.type === "Недвижимость" && /(квартир|комн|этаж|проживан)/i.test(text)) return "Квартира";
+  if (collateral?.type === "Недвижимость" && /(склад|офис|логист|производ|земл|строен)/i.test(text)) return "Склад";
+  return "";
+}
+
+function createFallbackAnalog(collateral, index = 0) {
+  const type = collateral?.type || "Иное";
+  const subtype = getMarketAnalogSubtype(collateral);
+  const baseValue = collateral?.marketValue || collateral?.pledgeValue || 1000000000;
+  const multipliers = [0.96, 1.02, 0.99];
+  return {
+    type,
+    subtype,
+    source: "Экспертная база аналогов",
+    object: `${getAnalogObjectPrefix(type, subtype)} ${index + 1}: ${collateral?.description || "сопоставимый объект"}`,
+    price: Math.round(baseValue * (multipliers[index % multipliers.length] || 1)),
+    correction: ["+1.0%", "-1.5%", "+0.5%"][index % 3],
+    result: Math.round(baseValue * (multipliers[index % multipliers.length] || 1))
+  };
+}
+
+function getAnalogObjectPrefix(type, subtype = "") {
+  const prefixes = {
+    "Автотранспорт": "Автотранспорт",
+    "Недвижимость": subtype || "Недвижимость",
+    "Оборудование": "Оборудование",
+    "Товары в обороте": "Товарная партия",
+    "Скот": "Поголовье"
+  };
+  return prefixes[type] || type || "Объект";
+}
+
+function getAnalogYearLabel(type) {
+  if (type === "Автотранспорт") return "2021-2022";
+  if (type === "Недвижимость") return "Регистрация 2020-2022";
+  if (type === "Оборудование") return "Ввод в эксплуатацию 2020-2023";
+  if (type === "Товары в обороте") return "Партия 2026";
+  if (type === "Скот") return "Ветеринарный учет 2026";
+  return "Период сопоставим";
+}
+
+function getAnalogDetailsLabel(type) {
+  if (type === "Автотранспорт") return "Пробег, год выпуска и состояние сопоставимы";
+  if (type === "Недвижимость") return "Площадь, локация и состояние сопоставимы";
+  if (type === "Оборудование") return "Назначение, производительность и износ сопоставимы";
+  if (type === "Товары в обороте") return "Номенклатура, объем партии и условия хранения сопоставимы";
+  if (type === "Скот") return "Порода, направление, количество голов и состояние сопоставимы";
+  return "Ключевые характеристики сопоставимы";
 }
 
 function renderMarketAnalogMatrix(task, collateral, matrix) {
@@ -3308,6 +3433,67 @@ function renderImportCollateralsModal() {
   `;
 }
 
+function renderFollowupModal() {
+  const title = state.modal.taskType === "Единичная переоценка" ? "Создать задачу на оценку" : "Создать задачу на осмотр";
+  return `
+    <div class="modal-backdrop">
+      <section class="modal">
+        <div class="modal-head"><h2>${title}</h2><button class="btn btn-secondary" data-action="close-modal">Закрыть</button></div>
+        <div class="form-grid">
+          <label>Исполнитель<select id="followupAssignee">${employees.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
+          <label>Срок<input id="followupDue" type="date" value="2026-06-24"></label>
+        </div>
+        <label>Комментарий<textarea id="followupComment">Задача создана из маршрута ${escapeHtml(state.modal.parentTaskId)}.</textarea></label>
+        <div class="modal-actions"><button class="btn btn-primary" data-action="submit-followup">Создать</button></div>
+      </section>
+    </div>
+  `;
+}
+
+function renderApproverModal() {
+  const task = getTask(state.modal.taskId);
+  if (!task) return "";
+  const approvers = getApproverCandidates();
+  const defaultApprover = task.pendingApprover?.name || "Азиз Рахимов";
+  return `
+    <div class="modal-backdrop">
+      <section class="modal">
+        <div class="modal-head"><h2>Добавить согласующего</h2><button class="btn btn-secondary" data-action="close-modal">Закрыть</button></div>
+        <div class="form-grid">
+          <label>Задача<input value="${escapeHtml(task.id)} - ${escapeHtml(task.type)}" readonly></label>
+          <label>Согласующий<select id="approverName">
+            ${approvers.map((item) => `<option ${item === defaultApprover ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+          </select></label>
+        </div>
+        <label>Комментарий для согласующего<textarea id="approverComment">Проверьте результат задачи и подтвердите возможность завершения.</textarea></label>
+        <div class="modal-actions"><button class="btn btn-primary" data-action="submit-approver">Подтвердить</button></div>
+      </section>
+    </div>
+  `;
+}
+
+function renderReassignModal() {
+  const task = getTask(state.modal.taskId);
+  if (!task) return "";
+  return `
+    <div class="modal-backdrop">
+      <section class="modal">
+        <div class="modal-head"><h2>Переназначить задачу</h2><button class="btn btn-secondary" data-action="close-modal">Закрыть</button></div>
+        <div class="form-grid">
+          <label>Задача<input value="${escapeHtml(task.id)} - ${escapeHtml(task.type)}" readonly></label>
+          <label>Текущий исполнитель<input value="${escapeHtml(task.assignee || "Не назначен")}" readonly></label>
+          <label>Новый исполнитель<select id="reassignAssignee">
+            ${employees.map((item) => `<option ${item === task.assignee ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+          </select></label>
+          <label>Статус<input value="${escapeHtml(task.status)}" readonly></label>
+        </div>
+        <label>Комментарий<textarea id="reassignComment">Переназначение руководителем по результатам контроля загрузки исполнителей.</textarea></label>
+        <div class="modal-actions"><button class="btn btn-primary" data-action="submit-reassign">Переназначить</button></div>
+      </section>
+    </div>
+  `;
+}
+
 function renderMobileInspectionModal() {
   const parent = getTask(state.modal.parentTaskId);
   const collaterals = getTaskCollaterals(parent);
@@ -3341,23 +3527,9 @@ function renderMobileInspectionModal() {
 
 function renderModal() {
   if (!state.modal) return "";
-  if (state.modal.type === "followup") {
-    return `
-      <div class="modal-backdrop">
-        <section class="modal">
-          <div class="modal-head"><h2>Создать связанную задачу</h2><button class="btn btn-secondary" data-action="close-modal">Закрыть</button></div>
-          <div class="form-grid">
-            <label>Тип задачи<select id="followupType">${taskTypes.map((item) => `<option ${item === state.modal.taskType ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>
-            <label>Объект залога<input id="followupCollateral" value="${escapeHtml(state.modal.collateralId || "")}"></label>
-            <label>Исполнитель<select id="followupAssignee">${employees.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
-            <label>Срок<input id="followupDue" type="date" value="2026-06-24"></label>
-          </div>
-          <label>Комментарий<textarea id="followupComment">Задача создана из маршрута ${escapeHtml(state.modal.parentTaskId)}.</textarea></label>
-          <div class="modal-actions"><button class="btn btn-primary" data-action="submit-followup">Создать</button></div>
-        </section>
-      </div>
-    `;
-  }
+  if (state.modal.type === "followup") return renderFollowupModal();
+  if (state.modal.type === "approver") return renderApproverModal();
+  if (state.modal.type === "reassign") return renderReassignModal();
   if (state.modal.type === "mobileInspection") return renderMobileInspectionModal();
   if (state.modal.type === "import") return renderImportCollateralsModal();
   if (state.modal.type === "collateralPicker") return renderCollateralRegistryPickerModal();
@@ -3456,9 +3628,11 @@ document.addEventListener("click", (event) => {
   if (action === "collateral-tab") state.collateralTab = actionEl.dataset.tab;
   if (action === "select-task-collateral") state.taskActiveCollateral[actionEl.dataset.task] = actionEl.dataset.collateral;
   if (action === "task-status") updateTaskStatus(actionEl.dataset.task, actionEl.dataset.status);
-  if (action === "save-task") addToast("Задача сохранена", actionEl.dataset.task, "ok");
-  if (action === "open-reassign") addToast("Назначение изменено", "В демо выбран следующий доступный исполнитель.", "warn");
-  if (action === "add-approver") addToast("Согласующий добавлен", "Маршрут обновлен в демо-режиме.", "ok");
+  if (action === "save-task") saveTaskCard(actionEl.dataset.task);
+  if (action === "open-reassign") openReassignModal(actionEl.dataset.task);
+  if (action === "submit-reassign") submitReassign();
+  if (action === "add-approver") openApproverModal(actionEl.dataset.task);
+  if (action === "submit-approver") submitApprover();
   if (action === "create-followup-task") openFollowup(actionEl.dataset.task, actionEl.dataset.taskType);
   if (action === "submit-followup") submitFollowup();
   if (action === "open-mobile-inspection-task") openMobileInspectionTask(actionEl.dataset.task, actionEl.dataset.mobileKind);
@@ -3580,10 +3754,98 @@ document.addEventListener("change", (event) => {
 function updateTaskStatus(taskId, status) {
   const task = getTask(taskId);
   if (!task) return;
+  const previousStatus = task.status;
   task.status = status;
-  task.history = task.history || [];
-  task.history.push({ date: "2026-06-17 20:40", user: getRole().user, action: `Статус изменен`, status, comment: "Изменено в демо-прототипе" });
-  addToast("Статус задачи обновлен", `${taskId}: ${status}`, status === "Завершена" ? "ok" : "warn");
+
+  if (status === "На доработке") {
+    const previousExecutor = task.previousAssignee || task.assignee || employees[0];
+    task.assignee = previousExecutor;
+    appendTaskHistory(task, "Задача возвращена", status, `Возврат на предыдущего исполнителя: ${previousExecutor}. Предыдущий статус: ${previousStatus}.`);
+    addToast("Задача возвращена", `${taskId}: ${previousExecutor}`, "warn");
+    return;
+  }
+
+  if (status === "Отложено") {
+    appendTaskHistory(task, "Задача отложена", status, `Предыдущий статус: ${previousStatus}.`);
+    addToast("Задача отложена", taskId, "warn");
+    return;
+  }
+
+  if (status === "Завершена") {
+    if (task.pendingApprover && !task.pendingApprover.transferred && !task.pendingApprover.completed) {
+      task.previousAssignee = task.assignee || getRole().user;
+      task.assignee = task.pendingApprover.name;
+      task.status = "На согласовании";
+      task.pendingApprover.transferred = true;
+      task.pendingApprover.transferredAt = getDemoTimestamp();
+      appendTaskHistory(task, `Задача передана согласующему ${task.pendingApprover.name}`, task.status, task.pendingApprover.comment || "-");
+      addToast("Задача передана согласующему", `${taskId}: ${task.pendingApprover.name}`, "info");
+      return;
+    }
+    if (task.pendingApprover) {
+      task.pendingApprover.completed = true;
+      task.pendingApprover.completedAt = getDemoTimestamp();
+    }
+    appendTaskHistory(task, "Задача завершена", status, `Предыдущий статус: ${previousStatus}.`);
+    addToast("Задача завершена", taskId, "ok");
+    return;
+  }
+
+  appendTaskHistory(task, "Статус изменен", status, `Предыдущий статус: ${previousStatus}.`);
+  addToast("Статус задачи обновлен", `${taskId}: ${status}`, "info");
+}
+
+function saveTaskCard(taskId) {
+  const task = getTask(taskId);
+  if (!task) return;
+  appendTaskHistory(task, "Задача сохранена", task.status, "Пользователь сохранил изменения в карточке задачи.");
+  addToast("Задача сохранена", taskId, "ok");
+}
+
+function openApproverModal(taskId) {
+  const task = getTask(taskId);
+  if (!task) return;
+  state.modal = { type: "approver", taskId };
+}
+
+function submitApprover() {
+  const task = getTask(state.modal?.taskId);
+  if (!task) return;
+  const approver = document.getElementById("approverName")?.value || employees[0];
+  const comment = document.getElementById("approverComment")?.value || "Комментарий для согласующего не указан.";
+  task.route = task.route || [];
+  const routeLabel = `Согласующий: ${approver}`;
+  if (!task.route.includes(routeLabel)) task.route.push(routeLabel);
+  task.pendingApprover = {
+    name: approver,
+    comment,
+    addedBy: getRole().user,
+    addedAt: getDemoTimestamp(),
+    transferred: false,
+    completed: false
+  };
+  appendTaskHistory(task, `Добавлен согласующий ${approver}`, task.status, comment);
+  state.modal = null;
+  addToast("Согласующий добавлен", approver, "ok");
+}
+
+function openReassignModal(taskId) {
+  const task = getTask(taskId);
+  if (!task) return;
+  state.modal = { type: "reassign", taskId };
+}
+
+function submitReassign() {
+  const task = getTask(state.modal?.taskId);
+  if (!task) return;
+  const previousAssignee = task.assignee || "Не назначен";
+  const nextAssignee = document.getElementById("reassignAssignee")?.value || previousAssignee;
+  const comment = document.getElementById("reassignComment")?.value || "Переназначение руководителем.";
+  task.previousAssignee = previousAssignee;
+  task.assignee = nextAssignee;
+  appendTaskHistory(task, "Задача переназначена", task.status, `Исполнитель: ${previousAssignee} -> ${nextAssignee}. ${comment}`);
+  state.modal = null;
+  addToast("Задача переназначена", `${task.id}: ${nextAssignee}`, "ok");
 }
 
 function openFollowup(taskId, taskType) {
@@ -3594,14 +3856,16 @@ function openFollowup(taskId, taskType) {
 }
 
 function submitFollowup() {
+  const parent = getTask(state.modal?.parentTaskId);
   const task = createTask({
-    type: document.getElementById("followupType")?.value || state.modal.taskType,
-    collateralId: document.getElementById("followupCollateral")?.value || state.modal.collateralId,
+    type: state.modal.taskType,
+    collateralId: state.modal.collateralId,
     assignee: document.getElementById("followupAssignee")?.value || employees[0],
     dueDate: document.getElementById("followupDue")?.value,
     comment: document.getElementById("followupComment")?.value,
     source: "Маршрут"
   });
+  appendTaskHistory(parent, `Создана связанная задача ${task.id}`, parent?.status || "", `${task.type}. ${document.getElementById("followupComment")?.value || ""}`);
   state.modal = null;
   window.location.hash = `/app/tasks/${task.id}`;
   addToast("Связанная задача создана", task.id, "ok");
@@ -3641,14 +3905,12 @@ function submitMobileInspectionTask() {
     route: isClient ? ["Специалист", "Клиент", "Контроль специалиста"] : ["Специалист", "Выездной сотрудник", "Контроль специалиста"],
     comment: `${comment} Канал: ${channel}. Основная задача: ${parent.id}.`
   });
-  parent.history = parent.history || [];
-  parent.history.unshift({
-    date: "2026-06-17 20:45",
-    user: getRole().user,
-    action: isClient ? "Отправлен запрос клиенту на осмотр" : "Создана задача на выездной осмотр",
-    status: parent.status,
-    comment: `${task.id}: ${collateral?.description || collateralId}`
-  });
+  appendTaskHistory(
+    parent,
+    isClient ? "Отправлен запрос клиенту на осмотр" : "Создана задача на выездной осмотр",
+    parent.status,
+    `${task.id}: ${collateral?.description || collateralId}`
+  );
   state.modal = null;
   addToast(isClient ? "Запрос клиенту отправлен" : "Задача на выездной осмотр создана", `${task.id} доступна в мобильном интерфейсе.`, "ok");
 }

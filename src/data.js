@@ -2171,7 +2171,22 @@ export const reportCatalog = [
 ];
 
 export const marketAnalogs = [
-  { source: "Avtoelon.uz", object: "Mercedes-Benz Actros 1845 2021", price: 955000000, correction: "+2.5%", result: 979000000 },
-  { source: "Avtoelon.uz", object: "Mercedes-Benz Actros 1845 2022", price: 990000000, correction: "-1.0%", result: 980100000 },
-  { source: "OLX.uz", object: "Квартира 3 комн., Мирзо-Улугбек", price: 1080000000, correction: "-3.0%", result: 1047600000 }
+  { type: "Автотранспорт", source: "Avtoelon.uz", object: "Mercedes-Benz Actros 1845 2021", price: 955000000, correction: "+2.5%", result: 979000000 },
+  { type: "Автотранспорт", source: "Avtoelon.uz", object: "Mercedes-Benz Actros 1845 2022", price: 990000000, correction: "-1.0%", result: 980100000 },
+  { type: "Автотранспорт", source: "Avtoelon.uz", object: "Mercedes-Benz Actros 1845 2020", price: 910000000, correction: "+1.0%", result: 919100000 },
+  { type: "Недвижимость", subtype: "Квартира", source: "OLX.uz", object: "Квартира 3 комн., Мирзо-Улугбек", price: 1080000000, correction: "-3.0%", result: 1047600000 },
+  { type: "Недвижимость", subtype: "Квартира", source: "OLX.uz", object: "Квартира 82 кв.м, Буюк Ипак Йули", price: 1035000000, correction: "+1.5%", result: 1050525000 },
+  { type: "Недвижимость", subtype: "Квартира", source: "OLX.uz", object: "Квартира 80 кв.м, Мирзо-Улугбек", price: 1018000000, correction: "+0.5%", result: 1023090000 },
+  { type: "Недвижимость", subtype: "Склад", source: "OLX.uz", object: "Складской комплекс 4 000 кв.м, Ангрен", price: 4280000000, correction: "-2.0%", result: 4194400000 },
+  { type: "Недвижимость", subtype: "Склад", source: "Коммерческая недвижимость", object: "Склад и офис 4 350 кв.м, Ташкентская область", price: 4410000000, correction: "-1.0%", result: 4365900000 },
+  { type: "Недвижимость", subtype: "Склад", source: "Отчет оценщика", object: "Логистический склад 4 100 кв.м, Чирчик", price: 4160000000, correction: "+1.0%", result: 4201600000 },
+  { type: "Оборудование", source: "Dealer equipment offers", object: "Линия сортировки Unitec, 2021", price: 1690000000, correction: "+1.5%", result: 1715350000 },
+  { type: "Оборудование", source: "EquipmentTrade.uz", object: "Линия упаковки сухофруктов, 2022", price: 1580000000, correction: "-1.0%", result: 1564200000 },
+  { type: "Оборудование", source: "Акт независимой оценки", object: "Печатная линия Heidelberg XL 106, 2020", price: 4020000000, correction: "-2.5%", result: 3919500000 },
+  { type: "Товары в обороте", source: "Биржевые котировки", object: "Хлопковая пряжа 1 сорт, партия 580 тонн", price: 690000000, correction: "+0.5%", result: 693450000 },
+  { type: "Товары в обороте", source: "Складские предложения", object: "Готовая ткань суровая, партия 610 тонн", price: 725000000, correction: "-1.0%", result: 717750000 },
+  { type: "Товары в обороте", source: "Контракты поставщиков", object: "Хлопковая пряжа и ткань, складская партия", price: 705000000, correction: "+1.0%", result: 712050000 },
+  { type: "Скот", source: "Агро-маркет", object: "КРС мясного направления, 320 голов", price: 505000000, correction: "+1.5%", result: 512575000 },
+  { type: "Скот", source: "Ветеринарный реестр", object: "КРС мясного направления, 350 голов", price: 548000000, correction: "-2.0%", result: 537040000 },
+  { type: "Скот", source: "Отчет агрооценщика", object: "Поголовье КРС, 330 голов", price: 522000000, correction: "+0.5%", result: 524610000 }
 ];
