@@ -1967,7 +1967,6 @@ function renderRevaluationTaskBlock(task, collateral) {
       ${renderValuationInspectionBlock(task, collateral)}
       ${renderIndependentValuationBlock(collateral)}
       ${renderTaskRiskAssessment(task, collateral)}
-      ${renderValuationCostsBlock(collateral)}
       <section class="panel market-analysis-panel">
         <div class="panel-title">
           <div><h2>Анализ рынка аналогичных объектов в регионе</h2><p class="hint">Один столбец таблицы соответствует одному сопоставимому объекту. Характеристики и корректировки доступны для ручной правки.</p></div>
@@ -1980,6 +1979,7 @@ function renderRevaluationTaskBlock(task, collateral) {
         </div>
         ${renderMarketAnalogMatrix(task, collateral, matrix)}
       </section>
+      ${renderValuationCostsBlock(collateral)}
       ${renderValuationValueBlock(collateral, valueCalc)}
     </section>
   `;
@@ -2009,8 +2009,9 @@ function renderIndependentValuationBlock(collateral) {
   const evaluation = collateral?.evaluations?.[0] || {};
   const market = Number(evaluation.market || collateral?.marketValue || 0);
   const methods = getValuationMethods(collateral, market);
+  const independentMarketValue = calculateIndependentValuationMarketValue(methods);
   return `
-    <section class="panel task-form-panel">
+    <section class="panel task-form-panel" data-independent-valuation-panel>
       <div class="panel-title">
         <div><h2>Независимая оценка объекта залога</h2></div>
         ${badge(collateral?.appraisalStatus || "Не указано")}
@@ -2027,10 +2028,14 @@ function renderIndependentValuationBlock(collateral) {
         <table class="method-table">
           <thead><tr><th>Метод оценки</th>${methods.map((item) => `<th>${escapeHtml(item.name)}</th>`).join("")}</tr></thead>
           <tbody>
-            <tr><td>Результат оценки</td>${methods.map((item) => `<td><input value="${escapeHtml(formatMoney(item.value))}"></td>`).join("")}</tr>
-            <tr><td>Вес оценки</td>${methods.map((item) => `<td><div class="percent-input"><input value="${escapeHtml(item.weight)}"><span>%</span></div></td>`).join("")}</tr>
+            <tr><td>Результат оценки</td>${methods.map((item, index) => `<td><input value="${escapeHtml(formatMoney(item.value))}" data-independent-valuation-result data-method-index="${index}"></td>`).join("")}</tr>
+            <tr><td>Вес оценки</td>${methods.map((item, index) => `<td><div class="percent-input"><input value="${escapeHtml(item.weight)}" data-independent-valuation-weight data-method-index="${index}"><span>%</span></div></td>`).join("")}</tr>
           </tbody>
         </table>
+      </div>
+      <div class="independent-market-value">
+        <span>Рыночная стоимость объекта</span>
+        <strong data-independent-market-value>${formatMoney(independentMarketValue)}</strong>
       </div>
     </section>
   `;
@@ -2043,6 +2048,10 @@ function getValuationMethods(collateral, market) {
     { name: "Сравнительный метод", value: Math.round(market * (isRealty ? 1.21 : 1.15)), weight: isRealty ? 40 : 50 },
     { name: "Затратный метод", value: Math.round(market * (isRealty ? 1.03 : 1.27)), weight: isRealty ? 30 : 20 }
   ];
+}
+
+function calculateIndependentValuationMarketValue(methods) {
+  return Math.round(methods.reduce((sum, item) => sum + Number(item.value || 0) * (Number(item.weight || 0) / 100), 0));
 }
 
 function renderTaskRiskAssessment(task, collateral) {
@@ -2400,6 +2409,29 @@ function parseNumericInput(value) {
     .replace(",", ".");
   const number = Number(normalized);
   return Number.isFinite(number) ? number : 0;
+}
+
+function parseMoneyInput(value) {
+  const normalized = String(value ?? "")
+    .replace(/\s/g, "")
+    .replace(/[^\d,.-]/g, "")
+    .replace(",", ".");
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function refreshIndependentValuationMarketValue(fieldEl) {
+  const panel = fieldEl.closest("[data-independent-valuation-panel]");
+  if (!panel) return;
+  const resultInputs = Array.from(panel.querySelectorAll("[data-independent-valuation-result]"));
+  const weightInputs = Array.from(panel.querySelectorAll("[data-independent-valuation-weight]"));
+  const total = resultInputs.reduce((sum, input, index) => {
+    const value = parseMoneyInput(input.value);
+    const weight = parseNumericInput(weightInputs[index]?.value || 0);
+    return sum + value * (weight / 100);
+  }, 0);
+  const target = panel.querySelector("[data-independent-market-value]");
+  if (target) target.textContent = formatMoney(Math.round(total));
 }
 
 function updateMarketAdjustment(fieldEl) {
@@ -3675,6 +3707,11 @@ document.addEventListener("input", (event) => {
   const marketAdjustment = event.target.closest("[data-market-adjustment]");
   if (marketAdjustment) {
     updateMarketAdjustment(marketAdjustment);
+    return;
+  }
+  const independentValuationField = event.target.closest("[data-independent-valuation-result], [data-independent-valuation-weight]");
+  if (independentValuationField) {
+    refreshIndependentValuationMarketValue(independentValuationField);
     return;
   }
   const monitoringField = event.target.closest("[data-monitoring-field]");

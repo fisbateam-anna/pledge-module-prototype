@@ -1213,6 +1213,29 @@ tfoot td {
   font-size: 13px;
 }
 
+.independent-market-value {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: #fffaf0;
+  border: 1px solid #f3d587;
+  border-radius: 8px;
+}
+
+.independent-market-value span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.independent-market-value strong {
+  color: var(--text);
+  font-size: 18px;
+}
+
 .risk-assessment-panel .panel-title,
 .valuation-value-panel .panel-title {
   align-items: flex-start;
